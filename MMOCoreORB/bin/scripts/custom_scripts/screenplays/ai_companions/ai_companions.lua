@@ -90,6 +90,15 @@ local function hasWord(msg, words)
 	return false
 end
 
+-- Status log: log/ai_companions_status.log (so you can see what the bots did at startup)
+function AiCompanions:logStatus(msg)
+	local f = io.open("log/ai_companions_status.log", "a")
+	if f ~= nil then
+		f:write(tostring(getTimestampMilli()) .. " " .. msg .. "\n")
+		f:close()
+	end
+end
+
 function AiCompanions:botCfg(key)
 	return self.cfgByKey[key]
 end
@@ -108,6 +117,8 @@ end
 -- lifecycle
 ---------------------------------------------------------------------------
 function AiCompanions:start()
+	self:logStatus("start() called")
+
 	-- skip any stale responses left over from before this boot
 	local f = io.open(self.responseFile, "r")
 	if f ~= nil then
@@ -134,6 +145,9 @@ function AiCompanions:start()
 		end
 	end
 
+	self:logStatus(string.format("configured bots: %d (generated roster loaded: %s)", #self.allBots, tostring(AiCompanionsRoster ~= nil)))
+
+	local spawned = 0
 	for i = 1, #self.allBots do
 		local cfg = self.allBots[i]
 		self.cfgByKey[cfg.key] = cfg
@@ -143,9 +157,12 @@ function AiCompanions:start()
 			lastRequest = 0, quietTicks = 0,
 		}
 		if isZoneEnabled(cfg.zone) then
-			self:spawnBot(cfg)
+			if self:spawnBot(cfg) then spawned = spawned + 1 end
+		else
+			self:logStatus("zone not enabled, skipping " .. cfg.key .. " (" .. cfg.zone .. ")")
 		end
 	end
+	self:logStatus(string.format("start() done: spawned %d of %d bots", spawned, #self.allBots))
 
 	createEvent(self.TICK_MS, "AiCompanions", "tick", nil, "")
 end
@@ -154,7 +171,8 @@ function AiCompanions:spawnBot(cfg)
 	local pBot = spawnMobile(cfg.zone, cfg.template, 0, cfg.x, cfg.z, cfg.y, cfg.heading, 0)
 	if pBot == nil then
 		printf("AiCompanions: failed to spawn %s\n", cfg.key)
-		return
+		self:logStatus("FAILED to spawn " .. cfg.key .. " template=" .. cfg.template .. " zone=" .. cfg.zone)
+		return false
 	end
 
 	local st = self.state[cfg.key]
@@ -171,6 +189,8 @@ function AiCompanions:spawnBot(cfg)
 
 	AiAgent(pBot):setHomeLocation(cfg.x, cfg.z, cfg.y, 0)
 	createObserver(SPATIALCHAT, "AiCompanions", "onChat", pBot)
+	self:logStatus(string.format("spawned %s in %s at %.0f, %.0f", cfg.key, cfg.zone, cfg.x, cfg.y))
+	return true
 end
 
 ---------------------------------------------------------------------------
